@@ -1,6 +1,7 @@
 
 const express = require("express");
 const { registerUser, loginUser, guestLogin, logoutUser } = require("../controllers/authController");
+const upload = require("../middlewares/uploadMiddleware"); // Multer for handling image uploads
 const rateLimit = require("express-rate-limit");
 
 const router = express.Router();
@@ -13,7 +14,7 @@ const authLimiter = rateLimit({
 });
 
 // Public authentication routes
-router.post("/register", registerUser);
+router.post("/register", upload.single("avatar"), registerUser); // ✅ Multer handles avatar upload
 router.post("/login", authLimiter, loginUser);
 router.post("/guest-login", authLimiter, guestLogin);
 router.post("/logout", logoutUser);

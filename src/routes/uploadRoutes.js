@@ -1,29 +1,45 @@
 
+
+
+
+
 const express = require("express");
-const cloudinary = require("../config/cloudinary"); // Make sure the path is correct
+const multer = require("multer");
+const cloudinary = require("../config/cloudinary");
 const router = express.Router();
 
-// @desc    Upload image from URL
-// @route   POST /api/upload/uploadByUrl
-// @access  Public
-router.post("/uploadByUrl", async (req, res) => {
-  try {
-    const { imageUrl } = req.body;
+// Configure Multer for file upload (store in memory)
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
-    if (!imageUrl) {
-      return res.status(400).json({ success: false, message: "No image URL provided" });
+// @desc    Upload event image (User uploads a file)
+// @route   POST /api/upload/eventImage
+// @access  Private
+router.post("/eventImage", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file uploaded" });
     }
 
-    console.log("🔹 Uploading image from URL:", imageUrl);
+    console.log("📸 Uploading event image:", req.file.originalname);
 
-    // Upload image directly to Cloudinary
-    const result = await cloudinary.uploader.upload(imageUrl, { folder: "user_uploads" });
+    // Upload image buffer to Cloudinary
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: "event_images" },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      uploadStream.end(req.file.buffer);
+    });
 
-    console.log("✅ Cloudinary Upload Success:", result);
+    console.log("✅ Upload Successful:", result.secure_url);
 
     res.status(200).json({
       success: true,
-      message: "Image uploaded successfully",
+      message: "Event image uploaded successfully",
       imageUrl: result.secure_url,
     });
   } catch (error) {
@@ -31,16 +47,5 @@ router.post("/uploadByUrl", async (req, res) => {
     res.status(500).json({ success: false, message: "Cloudinary Upload Failed", error: error.message || error });
   }
 });
-
-router.get("/testCloudinary", (req, res) => {
-    try {
-      console.log("✅ Cloudinary Object:", cloudinary);
-      res.status(200).json({ success: true, message: "Cloudinary is working!" });
-    } catch (error) {
-      console.error("❌ Cloudinary Error:", error);
-      res.status(500).json({ success: false, message: "Cloudinary Not Working", error });
-    }
-  });
-  
 
 module.exports = router;

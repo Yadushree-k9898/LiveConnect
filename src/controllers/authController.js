@@ -1,16 +1,23 @@
+const axios = require("axios");
+const asyncHandler = require("express-async-handler");
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
-
 const { generateToken } = require("../config/jwt");
-const asyncHandler = require("express-async-handler");
+const cloudinary = require("../config/cloudinary");
+const fs = require("fs");
+const path = require("path");
+const { v4: uuidv4 } = require("uuid");
 
 /**
- * @desc    Register a new user
+ * @desc    Register a new user (Supports File Upload & Image URL)
  * @route   POST /api/auth/register
  * @access  Public
  */
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body;
+  console.log("📦 Request Body:", req.body);
+  console.log("📸 Uploaded File:", req.file);
+
+  const { name, email, password, avatar } = req.body;
 
   if (!name || !email || !password) {
     return res.status(400).json({ success: false, message: "All fields are required" });
@@ -22,21 +29,77 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  const user = await User.create({ name, email, password: hashedPassword });
+  let avatarUrl = "https://via.placeholder.com/150"; // Default avatar
+
+  if (req.file) {
+    try {
+      console.log("🚀 Uploading avatar to Cloudinary...");
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "avatars",
+        width: 200,
+        height: 200,
+        crop: "fill",
+      });
+      avatarUrl = result.secure_url;
+      console.log("✅ Avatar uploaded:", avatarUrl);
+    } catch (error) {
+      console.error("❌ Cloudinary Upload Error:", error);
+      return res.status(500).json({ success: false, message: "Avatar upload failed" });
+    }
+  } else if (avatar) {
+    try {
+      console.log("🌐 Fetching avatar from URL:", avatar);
+      
+      // Generate a unique filename
+      const tempFilePath = path.join(__dirname, `${uuidv4()}.jpg`);
+
+      // Download the image from the URL
+      const response = await axios({
+        url: avatar,
+        responseType: "arraybuffer",
+      });
+
+      fs.writeFileSync(tempFilePath, response.data); // Save it locally
+
+      console.log("🚀 Uploading fetched avatar to Cloudinary...");
+      const result = await cloudinary.uploader.upload(tempFilePath, {
+        folder: "avatars",
+        width: 200,
+        height: 200,
+        crop: "fill",
+      });
+
+      avatarUrl = result.secure_url;
+      console.log("✅ Avatar URL uploaded successfully:", avatarUrl);
+
+      fs.unlinkSync(tempFilePath); // Remove temporary file
+    } catch (error) {
+      console.error("❌ Cloudinary Upload Error (URL):", error);
+      return res.status(500).json({ success: false, message: "Failed to upload avatar URL" });
+    }
+  }
+
+  const user = await User.create({
+    name,
+    email,
+    password: hashedPassword,
+    avatar: avatarUrl,
+  });
 
   if (user) {
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       message: "User registered successfully",
       data: {
         _id: user.id,
         name: user.name,
         email: user.email,
+        avatar: user.avatar,
         token: generateToken(user.id),
       },
     });
   } else {
-    return res.status(400).json({ success: false, message: "Invalid user data" });
+    res.status(500).json({ success: false, message: "User registration failed" });
   }
 });
 
