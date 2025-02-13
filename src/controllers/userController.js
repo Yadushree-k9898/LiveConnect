@@ -1,7 +1,9 @@
+
+
 // const asyncHandler = require("express-async-handler");
 // const User = require("../models/User");
-
 // const bcrypt = require("bcryptjs");
+// const cloudinary = require("../config/cloudinary");
 
 // /**
 //  * @desc    Get user profile
@@ -9,7 +11,7 @@
 //  * @access  Private
 //  */
 // const getUserProfile = asyncHandler(async (req, res) => {
-//   const user = await User.findById(req.user.id).select("-password");
+//   const user = await User.findById(req.user.id).select("-password").lean();
 
 //   if (!user) {
 //     return res.status(404).json({ success: false, message: "User not found" });
@@ -23,7 +25,7 @@
 // });
 
 // /**
-//  * @desc    Update user profile
+//  * @desc    Update user profile (name & avatar upload)
 //  * @route   PUT /api/users/profile
 //  * @access  Private
 //  */
@@ -35,10 +37,27 @@
 //   }
 
 //   user.name = req.body.name || user.name;
-//   user.email = req.body.email || user.email;
 
-//   if (req.body.password) {
-//     user.password = await bcrypt.hash(req.body.password, 10);
+//   // Handle avatar upload to Cloudinary
+//   if (req.file) {
+//     try {
+//       const result = await cloudinary.uploader.upload(req.file.path, {
+//         folder: "avatars",
+//         width: 200,
+//         height: 200,
+//         crop: "fill",
+//       });
+
+//       // Remove old avatar if not the default one
+//       if (user.avatar && !user.avatar.includes("placeholder.com")) {
+//         const publicId = user.avatar.split("/").pop().split(".")[0];
+//         await cloudinary.uploader.destroy(`avatars/${publicId}`);
+//       }
+
+//       user.avatar = result.secure_url;
+//     } catch (error) {
+//       return res.status(500).json({ success: false, message: "Avatar upload failed" });
+//     }
 //   }
 
 //   const updatedUser = await user.save();
@@ -49,7 +68,7 @@
 //     data: {
 //       _id: updatedUser.id,
 //       name: updatedUser.name,
-//       email: updatedUser.email,
+//       avatar: updatedUser.avatar, // Include new avatar URL
 //     },
 //   });
 // });
@@ -61,39 +80,24 @@
 //  */
 // const deleteUserAccount = asyncHandler(async (req, res) => {
 //   const user = await User.findById(req.user.id);
+
 //   if (!user) {
 //     return res.status(404).json({ success: false, message: "User not found" });
 //   }
 
 //   await user.deleteOne();
-//   res
-//     .status(200)
-//     .json({ success: true, message: "User account deleted successfully" });
+
+//   res.status(200).json({
+//     success: true,
+//     message: "User account deleted successfully",
+//   });
 // });
 
-// /**
-//  * @desc    Fetch all users
-//  * @route   GET /api/users
-//  * @access  Private (Requires Authentication)
-//  */
-// const getAllUsers = asyncHandler(async (req, res) => {
-//   try {
-//     const users = await User.find().select("-password"); // Exclude passwords
-
-//     res.status(200).json({
-//       success: true,
-//       message: "Users fetched successfully",
-//       data: users,
-//     });
-//   } catch (error) {
-//     res.status(500).json({ success: false, message: "Server error" });
-//   }
-// });
-// module.exports = { getUserProfile, updateUserProfile, deleteUserAccount , getAllUsers}; // ✅ Ensure functions are exported
-
-
-
-
+// module.exports = {
+//   getUserProfile,
+//   updateUserProfile,
+//   deleteUserAccount,
+// };
 
 
 
@@ -101,6 +105,7 @@
 const asyncHandler = require("express-async-handler");
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
+const cloudinary = require("../config/cloudinary");
 
 /**
  * @desc    Get user profile
@@ -108,7 +113,7 @@ const bcrypt = require("bcryptjs");
  * @access  Private
  */
 const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user.id).select("-password").lean();
+  const user = await User.findById(req.user.id).select("-password");
 
   if (!user) {
     return res.status(404).json({ success: false, message: "User not found" });
@@ -122,42 +127,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
 });
 
 /**
-
- */
-// const updateUserProfile = asyncHandler(async (req, res) => {
-//   const user = await User.findById(req.user.id);
-
-//   if (!user) {
-//     return res.status(404).json({ success: false, message: "User not found" });
-//   }
-
-//   user.name = req.body.name || user.name;
-//   user.email = req.body.email || user.email;
-//   user.avatar = req.body.avatar || user.avatar; // Allow avatar update
-
-//   if (req.body.password) {
-//     user.password = await bcrypt.hash(req.body.password, 10);
-//   }
-
-//   const updatedUser = await user.save();
-
-//   res.status(200).json({
-//     success: true,
-//     message: "Profile updated successfully",
-//     data: {
-//       _id: updatedUser.id,
-//       name: updatedUser.name,
-//       email: updatedUser.email,
-//       avatar: updatedUser.avatar, // Include avatar in response
-//     },
-//   });
-// });
-
-
-
-
-/**
- * @desc    Update user profile (including avatar upload)
+ * @desc    Update user profile (name & avatar upload)
  * @route   PUT /api/users/profile
  * @access  Private
  */
@@ -168,42 +138,32 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: "User not found" });
   }
 
-  // Check if email is being updated & ensure it's unique
-  if (req.body.email && req.body.email !== user.email) {
-    const emailExists = await User.findOne({ email: req.body.email });
-    if (emailExists) {
-      return res.status(400).json({ success: false, message: "Email is already in use" });
-    }
-    user.email = req.body.email;
-  }
-
   user.name = req.body.name || user.name;
 
   // Handle avatar upload to Cloudinary
   if (req.file) {
-    // Upload new avatar to Cloudinary
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: "avatars",
-      width: 200,
-      height: 200,
-      crop: "fill",
-    });
+    try {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "avatars",
+        width: 200,
+        height: 200,
+        crop: "fill",
+      });
 
-    // Delete old avatar from Cloudinary if it's not the default one
-    if (user.avatar && !user.avatar.includes("placeholder.com")) {
-      const publicId = user.avatar.split("/").pop().split(".")[0]; // Extract public ID
-      await cloudinary.uploader.destroy(`avatars/${publicId}`);
+      // Remove old avatar if it exists and is not a placeholder
+      if (user.avatar && !user.avatar.includes("placeholder.com")) {
+        try {
+          const publicId = user.avatar.split("/").slice(-1)[0].split(".")[0]; // Extracts publicId
+          await cloudinary.uploader.destroy(`avatars/${publicId}`);
+        } catch (error) {
+          console.error("❌ Error deleting old avatar:", error.message);
+        }
+      }
+
+      user.avatar = result.secure_url;
+    } catch (error) {
+      return res.status(500).json({ success: false, message: "Avatar upload failed" });
     }
-
-    user.avatar = result.secure_url; // Store new Cloudinary avatar URL
-  }
-
-  // Update password if provided
-  if (req.body.password) {
-    if (req.body.password.length < 6) {
-      return res.status(400).json({ success: false, message: "Password must be at least 6 characters long" });
-    }
-    user.password = await bcrypt.hash(req.body.password, 10);
   }
 
   const updatedUser = await user.save();
@@ -214,23 +174,31 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     data: {
       _id: updatedUser.id,
       name: updatedUser.name,
-      email: updatedUser.email,
-      avatar: updatedUser.avatar, // Include new avatar URL
+      avatar: updatedUser.avatar,
     },
   });
 });
 
-
 /**
  * @desc    Delete user account
- * @route   DELETE /api/users/delete
+ * @route   DELETE /api/users/profile
  * @access  Private
  */
 const deleteUserAccount = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user.id);
-  
+
   if (!user) {
     return res.status(404).json({ success: false, message: "User not found" });
+  }
+
+  // Delete avatar from Cloudinary if not a placeholder
+  if (user.avatar && !user.avatar.includes("placeholder.com")) {
+    try {
+      const publicId = user.avatar.split("/").slice(-1)[0].split(".")[0];
+      await cloudinary.uploader.destroy(`avatars/${publicId}`);
+    } catch (error) {
+      console.error("❌ Error deleting avatar:", error.message);
+    }
   }
 
   await user.deleteOne();
@@ -241,28 +209,9 @@ const deleteUserAccount = asyncHandler(async (req, res) => {
   });
 });
 
-/**
- * @desc    Fetch all users (Admin Only)
- * @route   GET /api/users
- * @access  Private/Admin
- */
-const getAllUsers = asyncHandler(async (req, res) => {
-  try {
-    const users = await User.find().select("-password").lean();
-
-    res.status(200).json({
-      success: true,
-      message: "Users fetched successfully",
-      data: users,
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
 module.exports = {
   getUserProfile,
   updateUserProfile,
   deleteUserAccount,
-  getAllUsers,
 };
+
